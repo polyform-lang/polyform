@@ -1,0 +1,11 @@
+def parse_s_expression(lexer, indentation, scope, required)
+    if match?(lexer, #\()
+        def first = parse_s_expression(lexer, indentation, scope, true)
+        def rest = stack[everything]()
+        until match?(lexer, #\))
+            push!(rest, parse_s_expression(lexer, indentation, scope, true))
+        call_expression(lexer, first, rest...)
+    else if next(lexer) in name | string | number | quotation
+        next!(lexer)
+    else match!(lexer, #\()
+    

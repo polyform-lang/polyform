@@ -1,0 +1,447 @@
+module: polyform
+
+defmacro while =>
+  def expression = parse_expression(lexer, indentation, scope, true) 
+  def body = parse_body(lexer, indentation, scope, true)
+  `block
+    def loop()
+      if $expression
+        $body
+        loop()
+    loop()`
+
+defmacro until =>
+  def expression = parse_expression(lexer, indentation, scope, true) 
+  def body = parse_body(lexer, indentation, scope, true)
+  `while not $expression
+    $body`
+
+abstract:
+defclass sequence[T type]
+
+require     iterate(seq sequence) => ?              ; initial position
+require     iterate(seq sequence, pos ?) => ?       ; next position
+require     more?  (seq sequence, pos ?) => boolean ; false if iteration is finished
+require[T]  next   (seq sequence[T], pos ?) => T    ; next member of the sequence
+
+abstract: intrinsic: sealed:
+defclass internal_list sequence[everything]
+
+def[T] (item T) in (seq sequence[T])
+  def pos := iterate(seq)
+  def found := false
+  while not found and more?(seq, pos)
+    if next(seq, pos) = item then found := true
+    pos := iterate(seq, pos)
+  found
+
+def[T] first(seq sequence[T])
+  def pos = iterate(seq)
+  if more?(seq, pos) then next(seq, pos)
+  else false
+  ; else error("empty sequence")
+
+abstract: defclass constant_sequence[T type] sequence[T]
+abstract: defclass sequence![T type] sequence[T]
+abstract: defclass reversible_sequence[T type] sequence[T]
+abstract: defclass keyed_sequence[K type, T type]
+abstract: defclass constant_keyed_sequence[K type, T type] keyed_sequence[K, T]
+abstract: defclass keyed_sequence![K type, T type] keyed_sequence[K, T]
+
+constant: sealed:
+defclass range[T type] constructor: _range(min T, max T) \
+  type, constant_sequence[T]
+
+def range(min integer, max integer)     _range[integer](min, max)
+def range(min character, max character) _range[character](min, max)
+
+def (x everything) in (type range)            false
+def (x integer)    in (type range[integer])   x >= type.min and x <= type.max
+def (x character)  in (type range[character]) x.code >= type.min.code and x.code <= type.max.code
+
+def (r1 range[integer])   <= (t1 type)             integer <= t1
+def (t1 type)             <= (r1 range[integer])   t1 <= integer
+def (r1 range[integer])   <= (r2 range[integer])   r1.min >= r2.min and r1.max <= r2.max 
+
+def (r1 range[character]) <= (t1 type)             character <= t1
+def (t1 type)             <= (r1 range[character]) t1 <= character
+def (r1 range[character]) <= (r2 range[character]) r1.min.code >= r2.min.code and r1.max.code <= r2.max.code
+
+def (min integer)..(max integer)    _range[integer](min, max)
+def (min integer)..<(max integer)   _range[integer](min, max - 1)
+def (min integer)<..(max integer)   _range[integer](min + 1, max)
+def (min integer)<..<(max integer)  _range[integer](min + 1, max - 1)
+
+def (min character)..(max character)    _range[character](min, max)
+def (min character)..<(max character)   _range[character](min, character(max.code - 1))
+def (min character)<..(max character)   _range[character](character(min.code + 1), max)
+def (min character)<..<(max character)  _range[character](character(min.code + 1), character(max.code - 1))
+                
+def more?(r range[integer], pos integer)        pos <= r.max
+def next(r range[integer], pos integer)         pos
+def iterate(r range[integer])                   r.min
+def iterate(r range[integer], pos integer)      pos + 1
+def (r range[integer]).length                   r.max - r.min + 1
+
+def more?(r range[character], pos character)    pos.code <= r.max.code
+def next(r range[character], pos character)     pos
+def iterate(r range[character])                 r.min
+def iterate(r range[character], pos character)  character(pos.code + 1)
+def (r range[character]).length                 r.max.code - r.min.code + 1
+
+abstract:
+defclass succession[T type] \
+  sequence[T], \
+  keyed_sequence[0..max_length, T]
+
+abstract:
+defclass constant_succession[T type] \
+  succession[T], \
+  constant_sequence[T], \
+  constant_keyed_sequence[0..max_length, T]
+
+abstract:
+defclass succession![T type] \
+  succession[T], \
+  sequence![T], \
+  keyed_sequence![0..max_length, T]
+
+sealed: intrinsic: abstract:
+defclass internal_array[T type] constant_succession[T]
+
+def    (seq internal_array).length => 0..max_length     internal_array_length(seq)
+def    iterate(seq internal_array)                      0 
+def    iterate(seq internal_array, pos 0..max_length-1) pos + 1
+def    more?(seq internal_array, pos 0..max_length)     pos < seq.length
+def[T] next(seq internal_array[T], pos 0..max_length-1) seq[pos]
+def[T] (x internal_array[T])[y 0..max_length-1] => T    internal_array_element_get(x, y)
+
+def[T] next(x internal_array[T], pos 0..max_length-1) := (new_value T)        x[pos] := new_value
+def[T] next_member(x internal_array[T], pos 0..max_length-1) := (new_value T) x[pos] := new_value
+def[T] (x internal_array[T])[pos 0..max_length-1] := (new_value T) => T        internal_array_element_set(x, pos, new_value)
+
+abstract: intrinsic: sealed: 
+defclass string constant_succession[character]
+
+def iterate(s string)                      0          ; initial string position
+def more?(s string, pos 0..max_length)     pos < internal_string_length(s)
+def next(s string, pos 0..max_length-1)    internal_string_character_get(s, pos)
+def iterate(s string, pos 0..max_length-1) pos + 1
+def (s string).length                      internal_string_length(s.utf8)
+
+def keyed_iterate(s string)                      0
+def next_key(s string, pos 0..max_length-1)      pos
+def next_member(s string, pos 0..max_length-1)   next(s, pos)
+def keyed_iterate(s string, pos 0..max_length-1) iterate(s, pos)
+def (s string)[key 0..max_length-1]              internal_string_character_get(s, key)
+
+def[T1, T2] (s1 sequence[T1]) + (s2 sequence[T2])
+  concatenated_sequence[T1, T2](s1, s2)
+
+constant:
+defclass concatenated_sequence_position(iteration 0..max_length, position)
+
+constant:
+defclass concatenated_sequence[T1 type, T2 type](s1 sequence[T1], s2 sequence[T2]) \
+  sequence[T1 | T2]
+
+def (seq concatenated_sequence).length 
+  seq.s1.length + seq.s2.length
+
+def iterate(seq concatenated_sequence) 
+  if more?(seq.s1, iterate(seq.s1))
+    concatenated_sequence_position(1, iterate(seq.s1))
+  else concatenated_sequence_position(2, iterate(seq.s2))
+def iterate(seq concatenated_sequence, pos concatenated_sequence_position)
+  if pos.iteration = 1
+    def newpos = iterate(seq.s1, pos.position)
+    if more?(seq.s1, newpos)
+      concatenated_sequence_position(1, newpos)
+    else
+      concatenated_sequence_position(2, iterate(seq.s2))
+  else
+    concatenated_sequence_position(2, iterate(seq.s2, pos.position))
+
+def more?(seq concatenated_sequence, pos concatenated_sequence_position)
+  if pos.iteration = 1 
+    more?(seq.s1, pos.position) or more?(seq.s2, iterate(seq.s2))
+  else more?(seq.s2, pos.position)
+
+def next(seq concatenated_sequence, pos concatenated_sequence_position)
+  if pos.iteration = 1
+    next(seq.s1, pos.position)
+  else
+    next(seq.s2, pos.position)
+
+def[T] (n 0..max_length) * (s sequence[T])    repeated_sequence[T](n, s)
+def[T] (s sequence[T])   * (n 0..max_length)  repeated_sequence[T](n, s)
+
+constant:
+defclass repeated_sequence[T type](count 0..max_length, seq sequence[T]) sequence[T]
+
+def (seq repeated_sequence).length  seq.seq.length * seq.count
+def next (seq repeated_sequence, pos concatenated_sequence_position)   
+  next(seq.seq, pos.position)
+def more?(seq repeated_sequence, pos concatenated_sequence_position)   
+  pos.iteration <= seq.count and more?(seq.seq, pos.position)
+def iterate(seq repeated_sequence)      concatenated_sequence_position(1, iterate(seq.seq))
+def iterate(seq repeated_sequence, pos concatenated_sequence_position)
+  def next_position = iterate(seq.seq, pos.position)
+  if more?(seq.seq, next_position)
+    concatenated_sequence_position(pos.iteration, next_position)
+  else
+    concatenated_sequence_position(pos.iteration + 1, iterate(seq.seq))
+
+def[T] (n 0..max_length) * (s succession[T])  repeated_succession[T](n, s)
+def[T] (s succession[T]) * (n 0..max_length)  repeated_succession[T](n, s)
+
+constant:
+defclass repeated_succession[T type](count 0..max_length, seq succession[T]) succession[T]
+
+def (seq repeated_succession).length  seq.seq.length * seq.count
+def iterate(seq repeated_succession)  0
+def more?(seq repeated_succession, pos 0..max_length)
+  pos < seq.seq.end_position * seq.count
+def next(seq repeated_succession, pos 0..max_length-1)
+  next(seq.seq, pos mod seq.seq.end_position)
+def iterate(seq repeated_succession, pos 0..max_length-1)
+  iterate(seq.seq, pos mod seq.seq.end_position) + pos / seq.seq.end_position * seq.seq.end_position
+def keyed_iterate(seq repeated_succession) 0
+def next_key(seq repeated_succession, pos 0..max_length-1) pos
+def next_member(seq repeated_succession, pos 0..max_length-1) next(seq, pos)
+def keyed_iterate(seq repeated_succession, pos 0..max_length-1) iterate(seq, pos)
+def (seq repeated_succession)[key 0..max_length-1]
+  seq.seq[key mod seq.seq.end_position]
+def (seq repeated_succession).end_position
+  seq.seq.end_position * seq.count
+def[T] (seq repeated_succession[T])[r range[integer]] subsuccession(x, r)
+
+abstract: sealed:
+defclass set[T type] sequence[T]
+
+defclass constant_set[T type] \
+    constructor: _constant_set(members T...) set[T], constant_sequence[T], type
+  _members[members.length] = members
+
+defclass set![T type] constructor: _set!(members T...) set[T], sequence[T]
+  _members[members.length] = stack[T](members...)
+
+def[T] set(members T...)
+  _constant_set[T](members...)
+
+def (x everything) in (seq set) x in seq._members
+def (x type) <= (seq set)       x in seq
+
+def iterate(seq set)        iterate(seq._members)
+def more?(seq set, pos)     more?(seq._members, pos)
+def next(seq set, pos)      next(seq._members, pos)
+def iterate(seq set, pos)   iterate(seq._members, pos)
+def (seq set).length        seq._members.length
+
+def[T] next(seq set![T], pos) := (new_value T)
+  next(seq._members, pos) := new_value
+
+sealed: abstract:
+defclass list[T type](members T...) succession[T], reversible_sequence[T]
+  _members[members.length] := members
+
+def (x list).length                       x._members.length
+def iterate(x list)                       0
+def iterate(x list, pos 0..max_length-1)  pos + 1 
+def more?  (x list, pos 0..max_length)    pos < x._members.length
+def next   (x list, pos 0..max_length-1)  x._members[pos]
+
+def reverse_iterate(x list) x.length - 1
+def reverse_iterate(x list, pos 0..max_length)    pos - 1
+def reverse_more?  (x list, pos -1..max_length-1) pos >= 0
+
+def keyed_iterate(x list) 0
+def keyed_iterate(x list, pos 0..max_length-1)  pos + 1
+def next_key     (x list, pos 0..max_length-1)  pos
+def next_member  (x list, pos 0..max_length-1)  x._members[pos]
+def[T] (x list[T])[y 0..max_length-1] x._members[y]
+
+def (x list).end_position                x.length
+def[T] (x list[T])[r range[integer]]     subsuccession(x, r)
+
+defclass constant_list[T type] \
+  constructor: list(members T...) list[T](members...), constant_succession[T]
+
+def[T] list(members T...) list[T](members...)
+
+defclass list![T type](members T...) \
+  list[T](members...), succession![T]
+
+def[T] next(x list![T], pos 0..max_length-1) := (new_value T)
+  x._members[pos] := new_value
+def[T] next_member(x list![T], pos 0..max_length-1) := (new_value T)
+  x._members[pos] := new_value
+def[T] (x list![T])[pos 0..max_length-1] := (new_value T)
+  x._members[pos] := new_value
+
+defmacro \[ =>
+  def parameters = parse_actualparameters(lexer, indentation, scope, true)
+  next!(lexer)
+  `list(${$parameters & ,})`
+
+def for_emitter(#\=, lhss, lexer, indentation, scope)
+  ; if lhss.length ~= 1 then error("for x = y then z allows only one x")
+  def rhs = parse_expression(lexer, indentation, scope, true)
+  def rhs2 = if match?(lexer, #then)
+                parse_expression(lexer, indentation, scope, true)
+             else
+                rhs
+  [ ``,                                 ; no prelude
+    first(lhss),                        ; lhs is formal parameter
+    rhs,                                ; actual parameter first time
+    rhs2,                               ; actual parameter subsequent times
+    `` ]                                ; no prefix
+
+def for_emitter(#in, lhss, lexer, indentation, scope)
+  def rhs = parse_expression(lexer, indentation, scope, true)
+  def context = macro_context(scope)         ; for `
+
+  ; the prefix defines all the left-hand sides and does the end test
+  ; there is one position for each left-hand side to minimize
+  ; the number of invocations of iterate
+  def last_position = name("position" + string(lhss.length), context)
+  
+  def prefix := []
+  for i = 1 then i + 1 while i <= lhss.length 
+    def lhs = lhss[i-1]
+    def position = name("position" + string(i), context)
+    prefix := prefix + `if more?(sequence, $position)
+                          def $lhs = next(sequence, $position)
+                          `
+    if i < lhss.length
+      def next_position = name("position" + string(i + 1), context)
+      prefix := prefix + `def $next_position = iterate(sequence, $position)
+                         `
+  ; expansion of the emitter
+  [ `def sequence = $rhs                  ; prelude
+    `,
+    `position1`,                          ; formal parameter
+    `iterate(sequence)`,                  ; actual parameter first time
+    `iterate(sequence, $last_position)`,  ; actual parameter subsequent times
+    prefix ]
+
+def for_collector(#always, context, lexer, indentation, scope)
+  def result = `result`                 ; for nested `
+  [ `def result := true                 ; prelude
+    `,
+    `result`,                           ; postlude
+    `defmacro \always =>
+       def expression = parse_expression(lexer, indentation, scope, true)
+       \`if not \$expression then $result := false\`` ]
+
+def for_collector(#collect, context, lexer, indentation, scope)
+  def type = parse_name(lexer, indentation, scope, false) or #list
+  def result = `result`
+  [ `def result = stack[everything]()
+    `,
+    `list(result...)`,
+    `defmacro \collect =>
+      def expression = parse_expression(lexer, indentation, scope, true)
+      \`push!($result, \$expression)\``]
+       
+def for_collector(#count, context, lexer, indentation, scope)
+  def result = `result`
+  [ `def result := 0
+    `,
+    `result`,
+    `defmacro \count =>
+      \`$result := $result + 1\``]
+
+def for_collector(#return, context, lexer, indentation, scope)
+  def returner = `returner`             ; for nested `
+  [ `block exit: returner               ; prelude
+      `,
+    ``,                                 ; no postlude
+    `defmacro \return =>     ; prefix
+      def expression = parse_expression(lexer, indentation, scope, true)
+      \`$returner(\$expression)\``]
+    
+defclass subsuccession[T type] \
+    constructor: _subsuccession(s succession[T], r range[integer]) succession[T]
+  parent = s                succession[T]
+  end_position = r.length   0..max_length-1
+  offset = r.min            0..max_length
+
+def[T] subsuccession(s succession[T], r range[integer])
+  ; assert r.min >= 0
+  ; assert r.max < s.end_position
+  _subsuccession[T](s, r)
+
+def more?(seq subsuccession, pos 0..max_length)         pos < seq.end_position
+def[T] next(seq subsuccession[T], pos 0..max_length-1)  seq.parent[pos + seq.offset] 
+def iterate(seq subsuccession) 0
+def iterate(seq subsuccession, pos 0..max_length-1)
+  iterate(seq.parent, pos + seq.offset) - seq.offset
+
+def (seq subsuccession).length
+  if seq.parent in list | stack
+    seq.end_position
+  else
+    for pos = seq.offset then iterate(seq.parent, pos) \
+        while more?(seq.parent, pos) using count
+      count
+
+def[T] (seq subsuccession[T])[pos 0..max_length-1] seq.parent[pos + seq.offset]
+def[T] (seq subsuccession[T])[r range[integer]]
+  subsuccession[T](seq.parent, (r.min + seq.offset)..(r.max + seq.offset))
+  
+sealed:
+defclass stack[T type](initial_content T...) succession![T]
+  length    := initial_content.length         0..max_length
+  _contents := list![T](initial_content...)   list![T]
+
+def[T] push!(stk stack[T], val T)
+  if stk._contents.length > stk.length
+    stk._contents[stk.length] := val
+  else 
+    def expansion = if stk.length < 10 then 10
+                    else if stk.length < 200 then stk.length
+                    else stk.length / 2
+    stk._contents := list![T](stk._contents + expansion * [val]...)
+  stk.length := stk.length + 1
+  val
+
+def[T] pop!(stk stack[T])
+  ; assert (stk.length > 0)
+  stk.length := stk.length - 1
+  stk._contents[stk.length]
+
+def[T] (stk stack[T]).top
+  ; assert (stk.length > 0)
+  stk._contents[stk.length - 1]
+
+def iterate (s stack)                        0
+def more?   (s stack, i 0..max_length)       i < s.length
+def[T] next (s stack[T], i 0..max_length-1)  s._contents[i]
+def iterate (s stack, i 0..max_length-1)     i + 1
+
+def[T] next(s stack[T], i 0..max_length-1) := (v T)
+  s._contents[i] := v
+
+def reverse_iterate(s stack)                      s.length - 1
+def reverse_more?(s stack, pos -1..max_length-1)  pos >= 0
+def reverse_iterate(s stack, pos 0..max_length-1) pos - 1
+
+def keyed_iterate    (s stack)                        0
+def next_key         (s stack, i 0..max_length-1)     i
+def[T] next_member   (s stack[T], i 0..max_length-1)  s._contents[i]
+def keyed_iterate    (s stack, i 0..max_length-1)     i + 1
+
+def[T] (s stack[T])[i 0..max_length-1] => T
+  s._contents[i]
+
+def[T] next(s stack[T], i 0..max_length-1) := (new_value T)
+  s._contents[i] := new_value
+
+def[T] next_member(s stack[T], i 0..max_length-1) := (new_value T)
+  s._contents[i] := new_value
+
+def[T] (s stack[T])[i 0..max_length-1] := (new_value T)
+  s._contents[i] := new_value
+
+def (s stack).end_position s.length
