@@ -10,6 +10,7 @@ import { Method_Environment, Runtime_Method_Datum } from './method';
 import { Typer_Context } from "./typer";
 import { optimize } from "./optimize";
 import { js_beautify } from 'js-beautify';
+import { relative, dirname } from "path";
 
 export function JS_beatify(js_code: string): string {
     return js_beautify(js_code);
@@ -54,7 +55,7 @@ function compile_file(file: string, modules: Module): File_Expression {
 }
 
 
-function JS_convert_to_self_container_bundle(compiled_files: File_Expression[]) {
+function JS_convert_to_self_container_bundle(output_path: string, compiled_files: File_Expression[]) {
     const $poly = Runtime.instance;
     const js_context = new JS_context($poly.modules as Module);
     const js_reconstructor = new JS_object_reconstructor(js_context, $poly.mapper);
@@ -135,8 +136,11 @@ function JS_convert_to_self_container_bundle(compiled_files: File_Expression[]) 
     compiled.body.unshift(...js_reconstructor.init_statements);
     compiled.body.unshift(...compiled_prototypes);
 
+    let runtime_path = relative(dirname(output_path), "./bin/js_runtime.js");
+    if (!runtime_path.startsWith('.'))
+        runtime_path = './' + runtime_path;
     const runtime_initializer = new JS_codeblock_statement(
-        `const $runtime = require("../../polyform/bin/js_runtime.js");
+        `const $runtime = require(${JSON.stringify(runtime_path)});
          (typeof window === 'undefined' ? global : window).$poly = new $runtime.Runtime();
          $runtime.Runtime.instance = $poly;`);
          compiled.body.unshift(runtime_initializer);
@@ -191,7 +195,7 @@ function compile_files(files: string[], output: string, flags: Set<string>) {
     }
     
     const ts_js_output_start = process.hrtime.bigint()
-    const final_statement = JS_convert_to_self_container_bundle(compiled_files);
+    const final_statement = JS_convert_to_self_container_bundle(output, compiled_files);
     const js_output = final_statement.compile_statement();
     fs.writeFileSync(output, flags.has('--beatify') ? JS_beatify(js_output) : js_output); 
     const ts_js_output_end = process.hrtime.bigint()
