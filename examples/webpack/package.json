@@ -13,7 +13,7 @@
     "closure-webpack-plugin": "^2.3.0",
     "google-closure-compiler": "^20200406.0.0",
     "webpack": "^4.42.1",
-    "webpack-cli": "^3.3.11"
+    "webpack-cli": "^3.3.12"
   },
   "dependencies": {}
 }
